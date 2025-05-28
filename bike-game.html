@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bike Racing Game</title>
+<style>
+  body {
+    margin: 0;
+    background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #eee;
+  }
+  h1 {
+    margin: 20px 0 5px;
+  }
+  #game-container {
+    position: relative;
+    width: 400px;
+    height: 600px;
+    background: #444;
+    overflow: hidden;
+    border-radius: 15px;
+    box-shadow: 0 0 20px #222;
+  }
+  canvas {
+    display: block;
+    background: #222;
+    border-radius: 15px;
+  }
+  #scoreboard {
+    margin: 10px 0;
+    font-size: 24px;
+    font-weight: bold;
+  }
+  #game-over {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(10,10,10,0.9);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #f33;
+    font-size: 36px;
+    top: 0;
+    left: 0;
+    border-radius: 15px;
+    display: none;
+    z-index: 10;
+  }
+  #restart-btn {
+    margin-top: 20px;
+    padding: 12px 30px;
+    font-size: 20px;
+    background: #f33;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    cursor: pointer;
+    transition: background 0.3s ease;
+  }
+  #restart-btn:hover {
+    background: #a00;
+  }
+</style>
+</head>
+<body>
+
+<h1>Bike Racing Game</h1>
+<div id="scoreboard">Distance: 0 m</div>
+<div id="game-container">
+  <canvas id="gameCanvas" width="400" height="600"></canvas>
+  <div id="game-over">
+    <div>Game Over!</div>
+    <button id="restart-btn">Restart</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const gameOverScreen = document.getElementById('game-over');
+  const restartBtn = document.getElementById('restart-btn');
+  const scoreboard = document.getElementById('scoreboard');
+
+  const WIDTH = canvas.width;
+  const HEIGHT = canvas.height;
+
+  // Road settings
+  const roadWidth = 200;
+  const roadLeft = (WIDTH - roadWidth) / 2;
+  const laneCount = 3;
+  const laneWidth = roadWidth / laneCount;
+
+  // Player bike settings
+  const bikeWidth = 40;
+  const bikeHeight = 80;
+  let bikeX = roadLeft + laneWidth * 1 + (laneWidth - bikeWidth)/2; // start middle lane
+  const bikeY = HEIGHT - bikeHeight - 20;
+  let bikeSpeed = 8; // horizontal move speed
+
+  // Obstacles
+  const obstacleWidth = 40;
+  const obstacleHeight = 70;
+  const obstacleSpeedStart = 6;
+  let obstacleSpeed = obstacleSpeedStart;
+  let obstacles = [];
+
+  // Road lines for animation
+  let roadLines = [];
+  const lineHeight = 40;
+  const lineGap = 40;
+  const lineSpeed = 6;
+
+  // Game state
+  let keys = {};
+  let distance = 0;
+  let gameOver = false;
+
+  // Initialize road lines
+  function initRoadLines() {
+    roadLines = [];
+    for(let y = -lineHeight; y < HEIGHT; y += lineHeight + lineGap){
+      roadLines.push({x: WIDTH/2 - 5, y: y});
+      roadLines.push({x: WIDTH/2 + 5, y: y});
+    }
+  }
+
+  // Draw road with side lines and lane lines
+  function drawRoad() {
+    // Road background
+    ctx.fillStyle = '#333';
+    ctx.fillRect(roadLeft, 0, roadWidth, HEIGHT);
+
+    // Road edges
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(roadLeft, 0);
+    ctx.lineTo(roadLeft, HEIGHT);
+    ctx.moveTo(roadLeft + roadWidth, 0);
+    ctx.lineTo(roadLeft + roadWidth, HEIGHT);
+    ctx.stroke();
+
+    // Lane lines
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 3;
+    roadLines.forEach(line => {
+      ctx.beginPath();
+      ctx.moveTo(line.x, line.y);
+      ctx.lineTo(line.x, line.y + lineHeight);
+      ctx.stroke();
+    });
+  }
+
+  // Update road lines position for scrolling effect
+  function updateRoadLines() {
+    roadLines.forEach(line => {
+      line.y += lineSpeed;
+      if(line.y > HEIGHT){
+        line.y = -lineHeight - lineGap;
+      }
+    });
+  }
+
+  // Draw the bike (simple triangle shape)
+  function drawBike(x, y) {
+    ctx.fillStyle = '#2ecc71';
+    ctx.beginPath();
+    ctx.moveTo(x + bikeWidth/2, y);
+    ctx.lineTo(x, y + bikeHeight);
+    ctx.lineTo(x + bikeWidth, y + bikeHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // wheels
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.arc(x + 12, y + bikeHeight, 10, 0, Math.PI * 2);
+    ctx.arc(x + bikeWidth - 12, y + bikeHeight, 10, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Obstacle class
+  class Obstacle {
+    constructor(lane){
+      this.lane = lane;
+      this.width = obstacleWidth;
+      this.height = obstacleHeight;
+      this.x = roadLeft + laneWidth * lane + (laneWidth - this.width) / 2;
+      this.y = -this.height;
+    }
+
+    update() {
+      this.y += obstacleSpeed;
+    }
+
+    draw() {
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(this.x, this.y, this.width, this.height);
+      // wheels
+      ctx.fillStyle = '#222';
+      ctx.beginPath();
+      ctx.arc(this.x + 12, this.y + this.height, 10, 0, Math.PI * 2);
+      ctx.arc(this.x + this.width - 12, this.y + this.height, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    isOffScreen() {
+      return this.y > HEIGHT;
+    }
+
+    collidesWithBike() {
+      return !(
+        this.x + this.width < bikeX ||
+        this.x > bikeX + bikeWidth ||
+        this.y + this.height < bikeY ||
+        this.y > bikeY + bikeHeight
+      );
+    }
+  }
+
+  // Spawn obstacles at random lanes every interval
+  let obstacleSpawnTimer = 0;
+  const obstacleSpawnInterval = 1500; // ms
+
+  // Update all obstacles, remove offscreen ones
+  function updateObstacles(deltaTime) {
+    obstacleSpawnTimer += deltaTime;
+    if(obstacleSpawnTimer > obstacleSpawnInterval){
+      obstacleSpawnTimer = 0;
+      let lane = Math.floor(Math.random() * laneCount);
+      obstacles.push(new Obstacle(lane));
+    }
+
+    obstacles.forEach((obs, idx) => {
+      obs.update();
+      if(obs.isOffScreen()){
+        obstacles.splice(idx,1);
+        distance += 10;
+        increaseDifficulty();
+      }
+      if(obs.collidesWithBike()){
+        gameOver = true;
+      }
+    });
+  }
+
+  // Increase difficulty by increasing speed every 100 distance
+  function increaseDifficulty() {
+    if(distance % 100 === 0){
+      obstacleSpeed += 0.5;
+      if(obstacleSpawnInterval > 500) obstacleSpawnInterval -= 50;
+    }
+  }
+
+  // Update player position based on keys pressed
+  function updatePlayer() {
+    if(keys['ArrowLeft'] || keys['a']){
+      bikeX -= bikeSpeed;
+      if(bikeX < roadLeft) bikeX = roadLeft;
+    }
+    if(keys['ArrowRight'] || keys['d']){
+      bikeX += bikeSpeed;
+      if(bikeX > roadLeft + roadWidth - bikeWidth) bikeX = roadLeft + roadWidth - bikeWidth;
+    }
+  }
+
+  // Draw everything
+  function draw() {
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    drawRoad();
+    drawBike(bikeX, bikeY);
+    obstacles.forEach(obs => obs.draw());
+  }
+
+  // Game loop with deltaTime
+  let lastTime = 0;
+  function gameLoop(time=0) {
+    if(gameOver){
+      showGameOver();
+      return;
+    }
+    const deltaTime = time - lastTime;
+    lastTime = time;
+
+    updateRoadLines();
+    updatePlayer();
+    updateObstacles(deltaTime);
+    draw();
+
+    scoreboard.textContent = `Distance: ${distance} m`;
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Show game over screen
+  function showGameOver(){
+    gameOverScreen.style.display = 'flex';
+  }
+
+  // Restart game
+  function restartGame(){
+    gameOver = false;
+    distance = 0;
+    obstacleSpeed = obstacleSpeedStart;
+    obstacles = [];
+    bikeX = roadLeft + laneWidth * 1 + (laneWidth - bikeWidth)/2;
+    gameOverScreen.style.display = 'none';
+    lastTime = 0;
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Keyboard controls
+  window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+  });
+
+  window.addEventListener('keyup', e => {
+    keys[e.key] = false;
+  });
+
+  restartBtn.addEventListener('click', restartGame);
+
+  // Initialize
+  initRoadLines();
+  restartGame();
+
+</script>
+
+</body>
+</html>
